@@ -1,0 +1,26 @@
+/*
+ * Configuration for Azure IoT Hub
+ * MXChip AZ3166 - Pure MQTT Implementation
+ * 
+ * SETUP: Copy this file to config.h and update the values below.
+ *        config.h is ignored by git to protect your credentials.
+ */
+
+#ifndef CONFIG_H
+#define CONFIG_H
+
+// ===== WIFI CONFIGURATION =====
+#define WIFI_SSID           "your-wifi-ssid"
+#define WIFI_PASSWORD       "your-wifi-password"
+
+// ===== AZURE IOT HUB CONFIGURATION =====
+// Connection string from Azure Portal:
+// IoT Hub -> Devices -> Your Device -> Primary Connection String
+// Format: HostName=xxx.azure-devices.net;DeviceId=xxx;SharedAccessKey=xxx
+#define IOT_CONNECTION_STRING "HostName=your-hub.azure-devices.net;DeviceId=your-device;SharedAccessKey=your-key"
+
+// ===== TIMING CONFIGURATION =====
+// Telemetry interval in milliseconds (10 seconds)
+#define TELEMETRY_INTERVAL  10000
+
+#endif // CONFIG_H
