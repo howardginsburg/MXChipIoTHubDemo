@@ -5,11 +5,15 @@
 
 #include "azure_iot_mqtt.h"
 #include "config.h"
+#include "DeviceConfig.h"
 
 // mbedTLS for SAS token generation
 #include "mbedtls/md.h"
 #include "mbedtls/base64.h"
 #include "SystemTime.h"
+
+// Buffer for connection string loaded from EEPROM
+static char connectionString[600];
 
 // ===== INTERNAL STATE =====
 static WiFiClientSecure wifiClient;
@@ -66,7 +70,7 @@ static bool parseConnectionString()
 {
     Serial.println("[AzureIoT] Parsing connection string...");
     
-    const char* connStr = IOT_CONNECTION_STRING;
+    const char* connStr = connectionString;
     
     // Parse HostName
     const char* hostStart = strstr(connStr, "HostName=");
@@ -290,6 +294,27 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length)
 bool azureIoTInit()
 {
     Serial.println("[AzureIoT] Initializing...");
+    
+    // Load connection string from EEPROM via DeviceConfig
+    Serial.println("[AzureIoT] Loading connection string from EEPROM...");
+    if (!DeviceConfig_IsSettingAvailable(SETTING_CONNECTION_STRING))
+    {
+        Serial.println("[AzureIoT] Error: Connection string setting not available!");
+        Serial.println("[AzureIoT] Make sure build_flags in platformio.ini includes -DCONNECTION_PROFILE=PROFILE_IOTHUB_SAS");
+        return false;
+    }
+    
+    int bytesRead = DeviceConfig_Read(SETTING_CONNECTION_STRING, connectionString, sizeof(connectionString));
+    if (bytesRead < 0 || connectionString[0] == '\0')
+    {
+        Serial.println("[AzureIoT] Error: Failed to read connection string from EEPROM!");
+        Serial.println("[AzureIoT] Use the serial CLI to configure:");
+        Serial.println("[AzureIoT]   set_az_iothub <connection_string>");
+        return false;
+    }
+    Serial.print("[AzureIoT] Connection string loaded (");
+    Serial.print(strlen(connectionString));
+    Serial.println(" bytes)");
     
     // Parse connection string
     if (!parseConnectionString())

@@ -3,11 +3,14 @@
  * Pure MQTT implementation for Azure IoT Hub
  * 
  * Handles:
- * - Connection string parsing
+ * - Connection string loading from EEPROM (via DeviceConfig)
  * - SAS token generation
  * - MQTT connection management
  * - Device Twin operations
  * - Message routing
+ * 
+ * Configuration is loaded from EEPROM using the DeviceConfig API.
+ * Use the serial CLI to configure WiFi and IoT Hub connection string.
  */
 
 #ifndef AZURE_IOT_MQTT_H

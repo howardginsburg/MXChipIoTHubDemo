@@ -3,17 +3,20 @@
  * Using Pure MQTT (No Azure SDK)
  * 
  * This sample demonstrates:
- * - Device-to-Cloud (D2C) telemetry
+ * - Device-to-Cloud (D2C) telemetry (all sensors via SensorManager)
  * - Cloud-to-Device (C2D) messages
  * - Device Twin (get, update reported, receive desired)
  * 
- * Configuration: Edit mqtt_config.h
+ * Configuration is loaded from EEPROM using DeviceConfig.
+ * Sensor data is collected via the SensorManager framework API.
+ * Use the serial CLI to configure WiFi and IoT Hub connection string.
  */
 
 #include <Arduino.h>
 #include "AZ3166WiFi.h"
-#include "HTS221Sensor.h"
 #include "OledDisplay.h"
+#include "SensorManager.h"
+#include "RGB_LED.h"
 
 // Azure IoT MQTT library
 #include "azure_iot_mqtt.h"
@@ -24,12 +27,37 @@
 
 // ===== APPLICATION STATE =====
 static bool hasWifi = false;
+static bool hasMqtt = false;
 static int messageCount = 0;
 static unsigned long lastTelemetryTime = 0;
+static RGB_LED rgbLed;
 
-// Sensors
-static DevI2C* i2c;
-static HTS221Sensor* tempHumiditySensor;
+/**
+ * Update OLED display
+ */
+void updateDisplay(const char* line1, const char* line2 = NULL, const char* line3 = NULL)
+{
+    Screen.clean();
+    Screen.print(0, line1);
+    if (line2) Screen.print(1, line2);
+    if (line3) Screen.print(2, line3);
+}
+
+/**
+ * Update LEDs based on connection status
+ */
+void updateLEDs()
+{
+    digitalWrite(LED_AZURE, hasMqtt ? HIGH : LOW);
+    digitalWrite(LED_USER, (hasWifi && hasMqtt) ? HIGH : LOW);
+    
+    if (!hasWifi)
+        rgbLed.setRed();
+    else if (!hasMqtt)
+        rgbLed.setYellow();
+    else
+        rgbLed.turnOff();
+}
 
 // ===== APPLICATION CALLBACKS =====
 
@@ -40,10 +68,7 @@ void onC2DMessage(const char* topic, const char* payload, unsigned int length)
     Serial.print("  Content: ");
     Serial.println(payload);
     
-    // Display on OLED
-    Screen.clean();
-    Screen.print(0, "C2D Message:");
-    Screen.print(1, payload);
+    updateDisplay("C2D Message:", payload);
     
     // TODO: Add your C2D message handling here
     // Example: Parse JSON commands, trigger actions, etc.
@@ -58,13 +83,9 @@ void onDesiredProperties(const char* payload, int version)
     Serial.print("  Payload: ");
     Serial.println(payload);
     
-    // Display on OLED
-    Screen.clean();
-    Screen.print(0, "Twin Update!");
-    Screen.print(1, "Version:");
     char versionStr[16];
     snprintf(versionStr, sizeof(versionStr), "%d", version);
-    Screen.print(2, versionStr);
+    updateDisplay("Twin Update!", "Version:", versionStr);
     
     // TODO: Parse JSON and apply property changes
     // Example: Update telemetry interval, LED state, etc.
@@ -80,9 +101,7 @@ void onTwinReceived(const char* payload)
     Serial.println("App: Full Device Twin received!");
     Serial.println(payload);
     
-    Screen.clean();
-    Screen.print(0, "Twin Received");
-    Screen.print(1, "See Serial");
+    updateDisplay("Twin Received", "See Serial");
     
     // TODO: Parse the twin JSON to get initial state
     // The twin contains both "desired" and "reported" sections
@@ -91,13 +110,12 @@ void onTwinReceived(const char* payload)
 // ===== WIFI INITIALIZATION =====
 void initWiFi()
 {
-    Screen.print(0, "Connecting WiFi");
-    Screen.print(1, WIFI_SSID);
+    updateDisplay("Connecting WiFi");
     
-    Serial.print("Connecting to WiFi: ");
-    Serial.println(WIFI_SSID);
+    Serial.println("Connecting to WiFi (credentials from EEPROM)...");
     
-    if (WiFi.begin(WIFI_SSID, WIFI_PASSWORD) == WL_CONNECTED)
+    // WiFi.begin() with no parameters reads credentials from EEPROM
+    if (WiFi.begin() == WL_CONNECTED)
     {
         hasWifi = true;
         IPAddress ip = WiFi.localIP();
@@ -105,67 +123,49 @@ void initWiFi()
         Serial.print("WiFi connected! IP: ");
         Serial.println(ip);
         
-        Screen.print(0, "WiFi Connected");
-        Screen.print(1, ip.get_address());
+        updateDisplay("WiFi Connected", ip.get_address());
     }
     else
     {
         hasWifi = false;
         Serial.println("WiFi connection failed!");
-        Screen.print(0, "WiFi Failed!");
+        Serial.println("Use the serial CLI to configure:");
+        Serial.println("  set_wifi <ssid> <password>");
+        updateDisplay("WiFi Failed!", "Use serial CLI");
     }
-}
-
-// ===== SENSOR INITIALIZATION =====
-void initSensors()
-{
-    Serial.println("Initializing sensors...");
-    
-    i2c = new DevI2C(D14, D15);
-    tempHumiditySensor = new HTS221Sensor(*i2c);
-    tempHumiditySensor->init(NULL);
-    tempHumiditySensor->enable();
-    
-    Serial.println("Sensors initialized.");
 }
 
 // ===== SEND TELEMETRY =====
 void sendTelemetry()
 {
-    if (!azureIoTIsConnected())
+    if (!hasMqtt)
     {
         return;
     }
     
-    // Read sensor data
-    float temperature = 0;
-    float humidity = 0;
-    
-    tempHumiditySensor->getTemperature(&temperature);
-    tempHumiditySensor->getHumidity(&humidity);
-    
-    // Build JSON payload
-    char payload[256];
-    snprintf(payload, sizeof(payload),
-        "{\"deviceId\":\"%s\",\"messageId\":%d,\"temperature\":%.2f,\"humidity\":%.2f}",
-        azureIoTGetDeviceId(), messageCount++, temperature, humidity);
+    // Get all sensor data as JSON directly from SensorManager
+    char payload[512];
+    Sensors.toJson(payload, sizeof(payload));
     
     Serial.print("Sending telemetry: ");
     Serial.println(payload);
     
-    // Update display
+    // Update display with key values
+    float temp = Sensors.getTemperature();
+    float hum = Sensors.getHumidity();
+    float press = Sensors.getPressure();
+    
     char tempStr[32];
     char humidStr[32];
-    snprintf(tempStr, sizeof(tempStr), "Temp: %.1f C", temperature);
-    snprintf(humidStr, sizeof(humidStr), "Humidity: %.1f%%", humidity);
+    char pressStr[32];
+    snprintf(tempStr, sizeof(tempStr), "Temp: %.1f C", temp);
+    snprintf(humidStr, sizeof(humidStr), "Humidity: %.1f%%", hum);
+    snprintf(pressStr, sizeof(pressStr), "Press: %.1f hPa", press);
     
-    Screen.clean();
-    Screen.print(0, "Sending Data...");
-    Screen.print(1, tempStr);
-    Screen.print(2, humidStr);
+    updateDisplay(tempStr, humidStr, pressStr);
     
     // Build message properties (optional)
-    const char* props = (temperature > 30) ? "temperatureAlert=true" : NULL;
+    const char* props = (temp > 30) ? "temperatureAlert=true" : NULL;
     
     // Send telemetry
     if (azureIoTSendTelemetry(payload, props))
@@ -193,14 +193,13 @@ void setup()
     
     // Initialize OLED
     Screen.init();
-    Screen.print(0, "Azure IoT Demo");
-    Screen.print(1, "Initializing...");
+    updateDisplay("Azure IoT Demo", "Initializing...");
     
     // Initialize Azure LED (off until connected)
     pinMode(LED_AZURE, OUTPUT);
     digitalWrite(LED_AZURE, LOW);
     
-    // Initialize WiFi
+    // Initialize WiFi (credentials from EEPROM)
     initWiFi();
     if (!hasWifi)
     {
@@ -209,9 +208,8 @@ void setup()
     }
     delay(1000);
     
-    // Initialize sensors
-    initSensors();
-    delay(500);
+    // SensorManager is auto-initialized by the framework
+    Serial.println("Sensors ready (via SensorManager)");
     
     // Initialize Azure IoT
     Screen.print(2, "Init IoT Hub...");
@@ -233,12 +231,13 @@ void setup()
     {
         Serial.println("Setup failed: IoT connection failed");
         Screen.print(2, "Connect Failed!");
-        digitalWrite(LED_AZURE, LOW);
+        hasMqtt = false;
+        updateLEDs();
         return;
     }
     
-    // Connected - turn on Azure LED
-    digitalWrite(LED_AZURE, HIGH);
+    hasMqtt = true;
+    updateLEDs();
     
     // Setup complete
     Serial.println();
@@ -254,9 +253,7 @@ void setup()
     Serial.println("  Twin: az iot hub device-twin update --hub-name YOUR_HUB --device-id YOUR_DEVICE --desired '{\"prop\":true}'");
     Serial.println();
     
-    Screen.clean();
-    Screen.print(0, "Ready!");
-    Screen.print(1, "Sending data...");
+    updateDisplay("Ready!", "Sending data...");
     
     // Request initial twin
     azureIoTRequestTwin();
@@ -277,11 +274,12 @@ void loop()
     // Process Azure IoT messages
     azureIoTLoop();
     
-    // Update Azure LED based on connection status
-    digitalWrite(LED_AZURE, azureIoTIsConnected() ? HIGH : LOW);
+    // Update connection status and LEDs
+    hasMqtt = azureIoTIsConnected();
+    updateLEDs();
     
     // Send telemetry at regular intervals
-    if (azureIoTIsConnected())
+    if (hasMqtt)
     {
         unsigned long now = millis();
         if (now - lastTelemetryTime >= TELEMETRY_INTERVAL)

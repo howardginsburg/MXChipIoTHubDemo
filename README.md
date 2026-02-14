@@ -4,11 +4,12 @@ A pure MQTT implementation for connecting the MXChip AZ3166 IoT DevKit to Azure 
 
 ## Features
 
-- **Device-to-Cloud (D2C)**: Send telemetry data (temperature, humidity) to IoT Hub
+- **Device-to-Cloud (D2C)**: Send telemetry from all onboard sensors (temperature, humidity, pressure, accelerometer, gyroscope, magnetometer) via SensorManager
 - **Cloud-to-Device (C2D)**: Receive messages from IoT Hub
 - **Device Twin**: Get/update reported properties, receive desired property changes
-- **Visual Status**: Azure LED indicates MQTT connection status
+- **Visual Status**: Azure LED, User LED, and RGB LED indicate WiFi and MQTT connection status
 - **OLED Display**: Shows connection status and sensor readings
+- **DeviceConfig**: WiFi credentials and IoT Hub connection string stored in EEPROM, configurable via serial CLI
 
 ## Prerequisites
 
@@ -20,19 +21,29 @@ A pure MQTT implementation for connecting the MXChip AZ3166 IoT DevKit to Azure 
 
 ### 1. Clone the repository
 
-### 2. Configure credentials
+### 2. Configure the device
 
-```bash
-cp src/config.sample.txt src/config.h
+#### Option A: Web Interface (Recommended)
+
+1. Hold **Button B** while pressing the **Reset** button to enter AP mode
+2. Connect your computer to the WiFi network displayed on the OLED screen
+3. Open a browser and navigate to `http://192.168.0.1/`
+4. Enter your WiFi credentials and IoT Hub connection string
+5. Save and reset the device
+
+#### Option B: Serial CLI
+
+1. Connect via serial terminal (115200 baud)
+2. Press **Enter** to access the CLI
+3. Run the following commands:
+
+```
+set_wifi <ssid> <password>
+set_az_iothub <connection_string>
+exit
 ```
 
-Edit `src/config.h` with your settings:
-
-```cpp
-#define WIFI_SSID           "your-wifi-ssid"
-#define WIFI_PASSWORD       "your-wifi-password"
-#define IOT_CONNECTION_STRING "HostName=your-hub.azure-devices.net;DeviceId=your-device;SharedAccessKey=your-key"
-```
+The connection string can be found in Azure Portal: IoT Hub → Devices → Your Device → Primary Connection String.
 
 ### 3. Build and upload
 
@@ -45,9 +56,10 @@ Or use the PlatformIO IDE buttons in VS Code.
 ## Project Structure
 
 ```
+├── platformio.ini            # Build configuration and connection profile
 src/
 ├── main.cpp              # Application code (callbacks, telemetry, setup/loop)
-├── config.h              # Your configuration (git-ignored)
+├── config.h              # Timing configuration (telemetry interval)
 ├── config.sample.txt     # Template configuration
 ├── azure_iot_mqtt.h      # Azure IoT MQTT library header
 └── azure_iot_mqtt.cpp    # Azure IoT MQTT library implementation
@@ -55,10 +67,28 @@ src/
 
 ## Configuration
 
-| File | Purpose |
-|------|---------|
-| `config.h` | WiFi credentials, IoT Hub connection string, telemetry interval |
-| `azure_iot_mqtt.h` | Protocol settings (API version, port, SAS duration), root certificate |
+| Setting | Location | Description |
+|---------|----------|-------------|
+| Connection profile | `platformio.ini` build_flags | `-DCONNECTION_PROFILE=PROFILE_IOTHUB_SAS` |
+| WiFi credentials | EEPROM (via web interface or serial CLI) | Web: AP mode at `192.168.0.1` / CLI: `set_wifi <ssid> <password>` |
+| IoT Hub connection string | EEPROM (via web interface or serial CLI) | Web: AP mode at `192.168.0.1` / CLI: `set_az_iothub <connection_string>` |
+| Telemetry interval | `config.h` | `TELEMETRY_INTERVAL` (default 10000ms) |
+| Protocol settings | `azure_iot_mqtt.h` | API version, port, SAS duration, root certificate |
+
+## Telemetry Data
+
+All onboard sensors are read via the framework's `SensorManager` and sent as JSON:
+
+```json
+{
+  "temperature": 25.30,
+  "humidity": 45.20,
+  "pressure": 1013.25,
+  "accelerometer": { "x": 10, "y": -5, "z": 980 },
+  "gyroscope": { "x": 100, "y": -200, "z": 50 },
+  "magnetometer": { "x": 300, "y": -100, "z": 500 }
+}
+```
 
 ## Azure CLI Commands
 
@@ -137,9 +167,13 @@ azureIoTGetHostname();    // Get IoT Hub hostname from connection string
 
 | LED | Meaning |
 |-----|---------|
-| Azure LED ON | Connected to IoT Hub |
-| Azure LED OFF | Disconnected |
-| WiFi LED | Managed by firmware |
+| Azure LED ON | Connected to IoT Hub via MQTT |
+| Azure LED OFF | Not connected to IoT Hub |
+| User LED ON | WiFi and MQTT both connected |
+| User LED OFF | WiFi or MQTT disconnected |
+| RGB LED Red | WiFi not connected |
+| RGB LED Yellow | WiFi connected, MQTT not connected |
+| RGB LED Off | Fully connected |
 
 ## Troubleshooting
 
