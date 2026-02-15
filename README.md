@@ -1,79 +1,81 @@
 # MXChip AZ3166 Azure IoT Hub Demo
 
-A pure MQTT implementation for connecting the MXChip AZ3166 IoT DevKit to Azure IoT Hub. No Azure SDK required - just PubSubClient and direct MQTT communication.
+A pure MQTT implementation for connecting the MXChip AZ3166 IoT DevKit to Azure IoT Hub. No Azure SDK required - uses the framework's built-in AzureIoT library for direct MQTT communication.
 
 ## Features
 
+- **Multiple Connection Profiles**: IoT Hub SAS, DPS Symmetric Key (individual & group enrollment), DPS X.509 Certificate
 - **Device-to-Cloud (D2C)**: Send telemetry from all onboard sensors (temperature, humidity, pressure, accelerometer, gyroscope, magnetometer) via SensorManager
-- **Cloud-to-Device (C2D)**: Receive messages from IoT Hub
-- **Device Twin**: Get/update reported properties, receive desired property changes
-- **Visual Status**: Azure LED, User LED, and RGB LED indicate WiFi and MQTT connection status
-- **OLED Display**: Shows connection status and sensor readings
-- **DeviceConfig**: WiFi credentials and IoT Hub connection string stored in EEPROM, configurable via serial CLI
+- **Cloud-to-Device (C2D)**: Receive messages and device twin updates from IoT Hub
+- **Visual Status**: LED indicators for WiFi and MQTT connection status; OLED display for readings
+- **DeviceConfig**: All connection settings stored in EEPROM, configurable via web interface or serial CLI
 
 ## Prerequisites
 
 - [PlatformIO](https://platformio.org/) (VS Code extension recommended)
 - MXChip AZ3166 IoT DevKit
-- Azure IoT Hub with a registered device
+- Azure IoT Hub with a registered device, or Azure DPS enrollment
+
+## Connection Profiles
+
+Select a connection profile at build time via PlatformIO environments:
+
+| Profile | Environment | Build Flag | Auth Method | Settings |
+|---------|-------------|------------|-------------|----------|
+| IoT Hub SAS | `iothub_sas` | `PROFILE_IOTHUB_SAS` | SAS token | WiFi, IoT Hub connection string |
+| IoT Hub X.509 | `iothub_cert` | `PROFILE_IOTHUB_CERT` | X.509 certificate | WiFi, IoT Hub connection string, device certificate |
+| DPS Symmetric Key | `dps_sas` | `PROFILE_DPS_SAS` | Individual symmetric key | WiFi, DPS endpoint, Scope ID, Registration ID, symmetric key |
+| DPS Group SAS | `dps_sas_group` | `PROFILE_DPS_SAS_GROUP` | Group symmetric key | WiFi, DPS endpoint, Scope ID, Registration ID, group master key |
+| DPS X.509 | `dps_cert` | `PROFILE_DPS_CERT` | X.509 certificate | WiFi, DPS endpoint, Scope ID, Registration ID, device certificate |
+
+Profile selection is compile-time via `-DCONNECTION_PROFILE=PROFILE_X` in `platformio.ini`. The build flag is global, so `#if CONNECTION_PROFILE` guards work in both project and framework code.
 
 ## Quick Start
 
 ### 1. Clone the repository
 
-### 2. Configure the device
+### 2. Build and upload
 
-#### Option A: Web Interface (Recommended)
+```bash
+# Pick your profile and build + upload + open serial monitor
+pio run -e iothub_sas --target upload --target monitor
+pio run -e iothub_cert --target upload --target monitor
+pio run -e dps_sas --target upload --target monitor
+pio run -e dps_sas_group --target upload --target monitor
+pio run -e dps_cert --target upload --target monitor
+```
+
+Or use the PlatformIO IDE buttons in VS Code (select the environment from the status bar).
+
+### 3. Configure the device
+
+#### Web Interface (Recommended)
+
+The web interface is the preferred way to configure the device. It automatically shows only the settings relevant to the active profile.
 
 1. Hold **Button B** while pressing the **Reset** button to enter AP mode
 2. Connect your computer to the WiFi network displayed on the OLED screen
 3. Open a browser and navigate to `http://192.168.0.1/`
-4. Enter your WiFi credentials and IoT Hub connection string
-5. Save and reset the device
+4. Enter your WiFi credentials and connection settings (see the [Settings](#connection-profiles) column in the profiles table)
+5. Click **Save Configuration** and reset the device
 
-#### Option B: Serial CLI
+#### Serial CLI (Alternative)
 
-1. Connect via serial terminal (115200 baud)
-2. Press **Enter** to access the CLI
-3. Run the following commands:
+You can also configure the device via the serial console (115200 baud). Press **Enter** to access the CLI, then use the commands below.
 
-```
-set_wifi <ssid> <password>
-set_az_iothub <connection_string>
-exit
-```
+| Command | Description | Profiles |
+|---------|-------------|----------|
+| `set_wifi <ssid> <password>` | WiFi credentials | All |
+| `set_az_iothub <connection_string>` | IoT Hub connection string | `iothub_sas`, `iothub_cert` |
+| `set_devicecert <pem>` | Device certificate + private key (PEM) | `iothub_cert`, `dps_cert` |
+| `set_dps_endpoint <endpoint>` | DPS global endpoint | DPS profiles |
+| `set_scopeid <scope_id>` | DPS ID Scope | DPS profiles |
+| `set_regid <registration_id>` | DPS registration ID | DPS profiles |
+| `set_symkey <key>` | Symmetric key (individual or group master key) | `dps_sas`, `dps_sas_group` |
 
-The connection string can be found in Azure Portal: IoT Hub → Devices → Your Device → Primary Connection String.
+Type `exit` to leave the CLI and reboot.
 
-### 3. Build and upload
-
-```bash
-pio run --target upload --target monitor
-```
-
-Or use the PlatformIO IDE buttons in VS Code.
-
-## Project Structure
-
-```
-├── platformio.ini            # Build configuration and connection profile
-src/
-├── main.cpp              # Application code (callbacks, telemetry, setup/loop)
-├── config.h              # Timing configuration (telemetry interval)
-├── config.sample.txt     # Template configuration
-├── azure_iot_mqtt.h      # Azure IoT MQTT library header
-└── azure_iot_mqtt.cpp    # Azure IoT MQTT library implementation
-```
-
-## Configuration
-
-| Setting | Location | Description |
-|---------|----------|-------------|
-| Connection profile | `platformio.ini` build_flags | `-DCONNECTION_PROFILE=PROFILE_IOTHUB_SAS` |
-| WiFi credentials | EEPROM (via web interface or serial CLI) | Web: AP mode at `192.168.0.1` / CLI: `set_wifi <ssid> <password>` |
-| IoT Hub connection string | EEPROM (via web interface or serial CLI) | Web: AP mode at `192.168.0.1` / CLI: `set_az_iothub <connection_string>` |
-| Telemetry interval | `config.h` | `TELEMETRY_INTERVAL` (default 10000ms) |
-| Protocol settings | `azure_iot_mqtt.h` | API version, port, SAS duration, root certificate |
+> **Tip**: For the DPS group profile (`dps_sas_group`), the symmetric key should be the **group enrollment master key** from Azure Portal → DPS → Enrollment Groups → your group → Primary Key. The device derives its own key at runtime.
 
 ## Telemetry Data
 
@@ -92,30 +94,22 @@ All onboard sensors are read via the framework's `SensorManager` and sent as JSO
 
 ## Azure CLI Commands
 
-### Send C2D Message
-
 ```bash
+# Send a Cloud-to-Device message
 az iot device c2d-message send \
-  --hub-name YOUR_HUB \
-  --device-id YOUR_DEVICE \
-  --data "Hello from cloud!"
-```
+  --hub-name YOUR_HUB --device-id YOUR_DEVICE --data "Hello from cloud!"
 
-### Update Desired Properties
-
-```bash
+# Update desired properties
 az iot hub device-twin update \
-  --hub-name YOUR_HUB \
-  --device-id YOUR_DEVICE \
+  --hub-name YOUR_HUB --device-id YOUR_DEVICE \
   --desired '{"ledState": true, "telemetryInterval": 5}'
-```
 
-### View Device Twin
-
-```bash
+# View device twin
 az iot hub device-twin show \
-  --hub-name YOUR_HUB \
-  --device-id YOUR_DEVICE
+  --hub-name YOUR_HUB --device-id YOUR_DEVICE
+
+# Monitor telemetry
+az iot hub monitor-events --hub-name YOUR_HUB
 ```
 
 ## API Reference
@@ -148,20 +142,9 @@ azureIoTUpdateReportedProperties(json);         // Update reported properties
 ### Accessors
 
 ```cpp
-azureIoTGetDeviceId();    // Get device ID from connection string
-azureIoTGetHostname();    // Get IoT Hub hostname from connection string
+azureIoTGetDeviceId();    // Get device ID
+azureIoTGetHostname();    // Get IoT Hub hostname
 ```
-
-## MQTT Topics Reference
-
-| Feature | Topic Pattern |
-|---------|---------------|
-| D2C Telemetry | `devices/{deviceId}/messages/events/{properties}` |
-| C2D Messages | `devices/{deviceId}/messages/devicebound/#` |
-| Twin GET | `$iothub/twin/GET/?$rid={rid}` |
-| Twin Response | `$iothub/twin/res/{status}/?$rid={rid}` |
-| Twin PATCH | `$iothub/twin/PATCH/properties/reported/?$rid={rid}` |
-| Desired Updates | `$iothub/twin/PATCH/properties/desired/#` |
 
 ## LED Indicators
 
@@ -177,20 +160,57 @@ azureIoTGetHostname();    // Get IoT Hub hostname from connection string
 
 ## Troubleshooting
 
-### TLS Connection Failed
-- Check WiFi connection
-- Verify IoT Hub hostname in connection string
-- Ensure device is registered in IoT Hub
+| Symptom | Things to check |
+|---------|----------------|
+| TLS connection failed | WiFi connection, IoT Hub hostname, device registration |
+| MQTT state -1 | SAS token expiry, SharedAccessKey, NTP time sync |
+| MQTT state 5 (unauthorized) | Key buffer truncation — ensure firmware is up to date |
+| No telemetry in IoT Hub | DeviceId in connection string, Serial Monitor for errors |
 
-### MQTT Connection Failed (state -1)
-- Check SAS token expiry
-- Verify SharedAccessKey is correct
-- Check if NTP time sync succeeded
+## Architecture
 
-### No Telemetry in IoT Hub
-- Verify connection string includes correct DeviceId
-- Check Serial Monitor for error messages
-- Use Azure CLI to monitor: `az iot hub monitor-events --hub-name YOUR_HUB`
+### Project Structure
+
+```
+platformio.ini              # Build environments and shared settings
+src/
+└── main.cpp                # Application code (callbacks, telemetry, setup/loop)
+```
+
+The project contains only application code. All Azure IoT logic lives in the framework's AzureIoT library.
+
+### Framework Library: AzureIoT
+
+Located at `libraries/AzureIoT/src/` in the [framework](https://github.com/howardginsburg/framework-arduinostm32mxchip):
+
+| Module | Purpose |
+|--------|---------|
+| `AzureIoTHub.h/.cpp` | Public API — init, connect, telemetry, twin, callbacks. Profile-specific init via `#if CONNECTION_PROFILE` guards. |
+| `AzureIoTDPS.h/.cpp` | DPS registration state machine over MQTT. Creates a temporary PubSubClient, connects to DPS, polls for assignment. |
+| `AzureIoTCrypto.h/.cpp` | SAS token generation, HMAC-SHA256, URL encoding, group key derivation. Uses mbedtls. |
+| `AzureIoTConfig.h` | Protocol constants and DigiCert Global Root G2 CA certificate. |
+
+PubSubClient (Nick O'Leary, MIT) is bundled in the framework at `libraries/PubSubClient/src/` — no external `lib_deps` needed.
+
+### Init Flow by Profile
+
+**IoT Hub SAS** — Load connection string → parse HostName/DeviceId/SharedAccessKey → NTP sync → generate SAS token → connect
+
+**IoT Hub X.509** — Load connection string → parse HostName/DeviceId → load device cert + key → configure mTLS → connect (no password)
+
+**DPS SAS Individual** — Load DPS settings + symmetric key → NTP sync → generate DPS SAS token → register with DPS → get assigned hub → generate IoT Hub SAS token → connect
+
+**DPS SAS Group** — Load DPS settings + group master key → derive device key via HMAC-SHA256 → NTP sync → generate DPS SAS token → register with DPS → generate IoT Hub SAS token → connect
+
+**DPS X.509** — Load DPS settings + device cert → configure mTLS → register with DPS (no SAS token) → get assigned hub → connect with mTLS
+
+### Design Decisions
+
+- **Framework library over project files**: Azure IoT logic is reusable across projects; projects only contain application code
+- **Compile-time profile selection** (`#if CONNECTION_PROFILE`): Saves RAM on constrained device (256KB) by only allocating buffers for the active profile
+- **MQTT for DPS** over HTTP REST: Reuses PubSubClient, avoids writing a raw HTTP client
+- **Minimal JSON parsing** (strstr-based): No JSON library dependency; sufficient for DPS responses
+- **Temporary PubSubClient for DPS**: Keeps DPS state isolated from the IoT Hub connection
 
 ## License
 
