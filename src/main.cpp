@@ -143,32 +143,21 @@ void sendTelemetry()
         return;
     }
     
+    // Build payload: sensor JSON with messageId/deviceId/timestamp prepended
     messageCount++;
-    
-    // Get timestamp
-    time_t now = time(NULL);
-    struct tm* t = gmtime(&now);
+    char sensorJson[512];
+    if (!Sensors.toJson(sensorJson, sizeof(sensorJson))) return;
+
+    // Get ISO 8601 timestamp
     char timestamp[25];
-    strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", t);
-    
-    // Build payload with messageId, deviceId, timestamp, and sensor data
-    SensorData d = Sensors.readAll();
-    char payload[600];
+    time_t now = time(NULL);
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", gmtime(&now));
+
+    // Build final payload with messageId, deviceId, timestamp, and all sensor data
+    char payload[700];
     snprintf(payload, sizeof(payload),
-        "{\"messageId\":%d,"
-        "\"deviceId\":\"%s\","
-        "\"timestamp\":\"%s\","
-        "\"temperature\":%.2f,"
-        "\"humidity\":%.2f,"
-        "\"pressure\":%.2f,"
-        "\"accelerometer\":{\"x\":%ld,\"y\":%ld,\"z\":%ld},"
-        "\"gyroscope\":{\"x\":%ld,\"y\":%ld,\"z\":%ld},"
-        "\"magnetometer\":{\"x\":%ld,\"y\":%ld,\"z\":%ld}}",
-        messageCount, azureIoTGetDeviceId(), timestamp,
-        d.temperature, d.humidity, d.pressure,
-        d.accelX, d.accelY, d.accelZ,
-        d.gyroX, d.gyroY, d.gyroZ,
-        d.magX, d.magY, d.magZ);
+        "{\"messageId\":%d,\"deviceId\":\"%s\",\"timestamp\":\"%s\",%s",
+        messageCount, azureIoTGetDeviceId(), timestamp, sensorJson + 1);
     
     Serial.print("Sending telemetry: ");
     Serial.println(payload);
