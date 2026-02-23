@@ -199,10 +199,33 @@ void setup()
     Serial.println();
     Serial.println("========================================");
     Serial.println("  Azure IoT Hub Demo - MXChip AZ3166");
-    Serial.println("  Pure MQTT (No Azure SDK)");
-    Serial.print("  Profile: ");
-    Serial.println(DeviceConfig_GetProfileName());
     Serial.println("========================================");
+    Serial.println();
+    Serial.printf("Profile:          %s\n", DeviceConfig_GetProfileName());
+    Serial.printf("WiFi SSID:        %s\n", DeviceConfig_GetWifiSsid());
+    Serial.printf("WiFi password len:%d\n", (int)strlen(DeviceConfig_GetWifiPassword()));
+#if CONNECTION_PROFILE == PROFILE_IOTHUB_SAS
+    Serial.printf("Connection str len:%d\n", (int)strlen(DeviceConfig_GetConnectionString()));
+#endif
+#if CONNECTION_PROFILE == PROFILE_IOTHUB_CERT
+    Serial.printf("CA cert len:      %d\n", (int)strlen(DeviceConfig_GetCACert()));
+    Serial.printf("Client cert len:  %d\n", (int)strlen(DeviceConfig_GetClientCert()));
+    Serial.printf("Client key len:   %d\n", (int)strlen(DeviceConfig_GetClientKey()));
+#endif
+#if CONNECTION_PROFILE == PROFILE_DPS_SAS || CONNECTION_PROFILE == PROFILE_DPS_SAS_GROUP
+    Serial.printf("DPS endpoint:     %s\n", DeviceConfig_GetDpsEndpoint());
+    Serial.printf("Scope ID:         %s\n", DeviceConfig_GetScopeId());
+    Serial.printf("Registration ID:  %s\n", DeviceConfig_GetRegistrationId());
+    Serial.printf("Symmetric key len:%d\n", (int)strlen(DeviceConfig_GetSymmetricKey()));
+#endif
+#if CONNECTION_PROFILE == PROFILE_DPS_CERT
+    Serial.printf("DPS endpoint:     %s\n", DeviceConfig_GetDpsEndpoint());
+    Serial.printf("Scope ID:         %s\n", DeviceConfig_GetScopeId());
+    Serial.printf("CA cert len:      %d\n", (int)strlen(DeviceConfig_GetCACert()));
+    Serial.printf("Client cert len:  %d\n", (int)strlen(DeviceConfig_GetClientCert()));
+    Serial.printf("Client key len:   %d\n", (int)strlen(DeviceConfig_GetClientKey()));
+#endif
+    Serial.printf("Send interval:    %d s\n", DeviceConfig_GetSendInterval());
     Serial.println();
     
     // Initialize OLED
@@ -257,7 +280,9 @@ void setup()
     Serial.println();
     Serial.println("========================================");
     Serial.println("  Setup complete!");
-    Serial.println("  - D2C: Telemetry every 10 sec");
+    char intervalMsg[48];
+    snprintf(intervalMsg, sizeof(intervalMsg), "  - D2C: Telemetry every %d sec", DeviceConfig_GetSendInterval());
+    Serial.println(intervalMsg);
     Serial.println("  - C2D: Listening for messages");
     Serial.println("  - Twin: Enabled");
     Serial.println("========================================");
@@ -276,7 +301,7 @@ void setup()
     char reportedJson[128];
     snprintf(reportedJson, sizeof(reportedJson),
         "{\"firmwareVersion\":\"1.0.0\",\"telemetryInterval\":%d,\"deviceStarted\":true}",
-        TELEMETRY_INTERVAL / 1000);
+        DeviceConfig_GetSendInterval());
     azureIoTUpdateReportedProperties(reportedJson);
     
     lastTelemetryTime = millis();
@@ -296,7 +321,7 @@ void loop()
     if (hasMqtt)
     {
         unsigned long now = millis();
-        if (now - lastTelemetryTime >= TELEMETRY_INTERVAL)
+        if (now - lastTelemetryTime >= (unsigned long)DeviceConfig_GetSendInterval() * 1000)
         {
             sendTelemetry();
             lastTelemetryTime = now;
